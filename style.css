@@ -1,7 +1,17 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden !important;
+  position: fixed; /* Fix for white strips during scroll */
+}
+
 body {
-  overflow: hidden;
   font-family: "Roboto", serif;
   background: linear-gradient(135deg, #FFEDC7, #FFA6A6);
+  background-attachment: fixed;
+  overscroll-behavior: none; /* Prevent bounce glitches */
 }
 
 .carousel {
