@@ -23,6 +23,7 @@ body {
 }
 
 .carousel-item {
+  pointer-events: auto !important;
   --items: 16;
   --width: 340px;
   --height: 530px;

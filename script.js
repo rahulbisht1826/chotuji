@@ -59,7 +59,9 @@ const displayItems = (item, index, active) => {
 Animate & Sync UI
 --------------------*/
 const animate = () => {
+  // Clamp progress between 0 and 100
   progress = Math.max(0, Math.min(progress, 100))
+  // Calculate active index more precisely for 16 items
   active = Math.round((progress / 100) * ($items.length - 1))
   
   // Track audio switching
@@ -80,8 +82,13 @@ const animate = () => {
 Click on Items
 --------------------*/
 $items.forEach((item, i) => {
-  item.addEventListener('click', () => {
+  item.style.pointerEvents = 'auto' // Ensure cards are clickable
+  item.addEventListener('click', (e) => {
+    // Stop event bubbling to prevent double triggers
+    e.stopPropagation() 
     if (isDragging) return
+    
+    // Set progress exactly to the clicked item's position
     progress = (i / ($items.length - 1)) * 100
     animate()
   })
