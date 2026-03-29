@@ -5,22 +5,38 @@ let progress = 50
 let startX = 0
 let active = 0
 let isDown = false
+let currentAudioIndex = -1
+let isPlaying = false
+let isDraggingProgress = false
+let activeProgressBar = null
 
 /*--------------------
-Contants
+Constants
 --------------------*/
 const speedWheel = 0.02
 const speedDrag = -0.1
+const globalAudio = new Audio()
 
 /*--------------------
-Audio Player Setup
+DOM Elements Caching
 --------------------*/
-const globalAudio = new Audio();
-let isPlaying = false;
-let currentAudioIndex = -1;
+const $carousel = document.querySelector('.carousel')
+const $items = Array.from(document.querySelectorAll('.carousel-item'))
+const $cursors = document.querySelectorAll('.cursor')
+
+// Sub-element caching for faster updates
+const itemStates = $items.map(item => ({
+  el: item,
+  fill: item.querySelector('.progress-fill'),
+  thumb: item.querySelector('.progress-thumb'),
+  current: item.querySelector('.current-time'),
+  total: item.querySelector('.total-time'),
+  playIcon: item.querySelector('.play-icon'),
+  pauseIcon: item.querySelector('.pause-icon')
+}))
 
 /*--------------------
-Format Time
+Helpers
 --------------------*/
 const formatTime = (seconds) => {
   if (isNaN(seconds) || seconds === Infinity) return "0:00";
@@ -29,51 +45,63 @@ const formatTime = (seconds) => {
   return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
-/*--------------------
-Get Z
---------------------*/
-const getZindex = (array, index) => (array.map((_, i) => (index === i) ? array.length : array.length - Math.abs(index - i)))
+const getZindex = (len, index, active) => (index === active) ? len : len - Math.abs(active - index)
 
-/*--------------------
-Items
---------------------*/
-const $items = document.querySelectorAll('.carousel-item')
-const $cursors = document.querySelectorAll('.cursor')
-
-const displayItems = (item, index, active) => {
-  const zIndex = getZindex([...$items], active)[index]
-  item.style.setProperty('--zIndex', zIndex)
-  item.style.setProperty('--active', (index-active)/$items.length)
-}
-
-/*--------------------
-Animate & Sync UI
---------------------*/
-const animate = () => {
-  progress = Math.max(0, Math.min(progress, 100))
-  active = Math.round((progress / 100) * ($items.length - 1))
+const setItemStyles = (state, index, active, len) => {
+  const diff = index - active
+  const zZindex = getZindex(len, index, active)
   
-  // Track audio switching
-  if (active !== currentAudioIndex) {
-    currentAudioIndex = active;
-    globalAudio.src = `./src/audio_file/${active + 1}.mp3`;
-    if (isPlaying) {
-      globalAudio.play().catch(e => console.log("Audio not found or autoplay prevented.", e));
-    }
-    // Instantly reset the UI to 0:00 for the new card
-    updateAudioUI(0, 0);
+  state.el.style.setProperty('--zIndex', zZindex)
+  state.el.style.setProperty('--active', diff / len)
+  
+  if (index === active) {
+    state.el.classList.remove('inactive')
+    state.el.classList.add('active-card')
+  } else {
+    state.el.classList.add('inactive')
+    state.el.classList.remove('active-card')
   }
-
-  $items.forEach((item, index) => displayItems(item, index, active))
 }
+
+/*--------------------
+Animation Loop
+--------------------*/
+let rafId = null
+
+const update = () => {
+  progress = Math.max(0, Math.min(progress, 100))
+  const newActive = Math.round((progress / 100) * ($items.length - 1))
+  
+  if (newActive !== active || rafId === null) {
+    active = newActive
+    
+    // Track audio switching
+    if (active !== currentAudioIndex) {
+      currentAudioIndex = active
+      globalAudio.src = `./src/audio_file/${active + 1}.mp3`
+      if (isPlaying) {
+        globalAudio.play().catch(() => {})
+      }
+      updateAudioUI(0, 0)
+      updatePlayIcons()
+    }
+
+    const len = $items.length
+    itemStates.forEach((state, index) => setItemStyles(state, index, active, len))
+  }
+  
+  rafId = requestAnimationFrame(update)
+}
+
+// Start loop
+update()
 
 /*--------------------
 Click on Items
 --------------------*/
-$items.forEach((item, i) => {
-  item.addEventListener('click', () => {
+itemStates.forEach((state, i) => {
+  state.el.addEventListener('click', () => {
     progress = (i / ($items.length - 1)) * 100
-    animate()
   })
 })
 
@@ -81,20 +109,18 @@ $items.forEach((item, i) => {
 Audio Helpers
 --------------------*/
 function updatePlayIcons() {
-  $items.forEach((item, index) => {
-    const isCurrentActive = index === active;
+  itemStates.forEach((state, index) => {
+    const isCurrentActive = (index === active)
+    const playingEffect = isCurrentActive && isPlaying
     
-    item.querySelectorAll('.play-icon').forEach(icon => icon.style.display = (isCurrentActive && isPlaying) ? 'none' : 'block');
-    item.querySelectorAll('.pause-icon').forEach(icon => icon.style.display = (isCurrentActive && isPlaying) ? 'block' : 'none');
+    if (state.playIcon) state.playIcon.style.display = playingEffect ? 'none' : 'block'
+    if (state.pauseIcon) state.pauseIcon.style.display = playingEffect ? 'block' : 'none'
     
-    item.querySelectorAll('.progress-fill').forEach(fill => {
-      if (isCurrentActive && isPlaying) {
-        fill.classList.add('playing');
-      } else {
-        fill.classList.remove('playing');
-      }
-    });
-  });
+    if (state.fill) {
+      if (playingEffect) state.fill.classList.add('playing')
+      else state.fill.classList.remove('playing')
+    }
+  })
 }
 
 function togglePlay() {
@@ -102,7 +128,7 @@ function togglePlay() {
     globalAudio.play().then(() => {
       isPlaying = true;
       updatePlayIcons();
-    }).catch(e => console.log("Audio play error (check if song exists):", e));
+    }).catch(() => {});
   } else {
     globalAudio.pause();
     isPlaying = false;
@@ -117,33 +143,34 @@ globalAudio.addEventListener('ended', () => {
     nextIndex = 0; // Loop back to the first card
   }
   progress = (nextIndex / ($items.length - 1)) * 100;
-  animate();
   
   // Ensure the new song plays immediately
   isPlaying = true; 
-  globalAudio.play().catch(e => console.log(e));
+  globalAudio.play().catch(() => {});
   updatePlayIcons();
 });
 
 // Sync Song Time to UI
 function updateAudioUI(currentTime, duration) {
-  const percent = duration ? (currentTime / duration) * 100 : 0;
-  const currentStr = formatTime(currentTime);
-  const totalStr = duration ? `-${formatTime(duration - currentTime)}` : "0:00";
+  const percent = duration ? (currentTime / duration) * 100 : 0
+  const currentStr = formatTime(currentTime)
+  const totalStr = duration ? `-${formatTime(duration - currentTime)}` : "0:00"
   
-  $items.forEach((item, index) => {
+  itemStates.forEach((state, index) => {
     if (index === active) {
-      item.querySelectorAll('.progress-fill').forEach(fill => fill.style.width = `${percent}%`);
-      item.querySelectorAll('.progress-thumb').forEach(thumb => thumb.style.left = `${percent}%`);
-      item.querySelectorAll('.current-time').forEach(time => time.textContent = currentStr);
-      item.querySelectorAll('.total-time').forEach(time => time.textContent = totalStr);
+      if (state.fill) state.fill.style.width = `${percent}%`
+      if (state.thumb) state.thumb.style.left = `${percent}%`
+      if (state.current) state.current.textContent = currentStr
+      if (state.total) state.total.textContent = totalStr
     } else {
-      item.querySelectorAll('.progress-fill').forEach(fill => fill.style.width = `0%`);
-      item.querySelectorAll('.progress-thumb').forEach(thumb => thumb.style.left = `0%`);
-      item.querySelectorAll('.current-time').forEach(time => time.textContent = "0:00");
-      item.querySelectorAll('.total-time').forEach(time => time.textContent = "0:00");
+      if (state.current && state.current.textContent !== "0:00") {
+        if (state.fill) state.fill.style.width = '0%'
+        if (state.thumb) state.thumb.style.left = '0%'
+        state.current.textContent = "0:00"
+        state.total.textContent = "0:00"
+      }
     }
-  });
+  })
 }
 
 // timeupdate event fires as the audio plays
@@ -171,19 +198,16 @@ document.querySelectorAll('.controls, .progress-section').forEach(el => {
 document.querySelectorAll('.prev-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     progress = Math.max(0, progress - (100 / ($items.length - 1)));
-    animate();
   });
 });
 
 document.querySelectorAll('.next-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    progress = Math.min(100, progress + (100 / ($items.length - 1)));
-    let nextIndex = Math.round((progress / 100) * ($items.length - 1));
-    // If we're already at the end and press next, loop back
     if (active === $items.length - 1) {
        progress = 0;
+    } else {
+       progress = Math.min(100, progress + (100 / ($items.length - 1)));
     }
-    animate();
   });
 });
 
@@ -194,9 +218,7 @@ document.querySelectorAll('.play-btn').forEach(btn => {
 
 
 // Scrubbing Player Song Progress
-let isDraggingProgress = false;
-let activeProgressBar = null;
-
+// Variables already declared at top to avoid redeclaration issues
 const updateSongScrub = (e) => {
   if (!activeProgressBar || !globalAudio.duration) return;
   const rect = activeProgressBar.getBoundingClientRect();
@@ -251,13 +273,12 @@ Carousel Handlers
 const handleWheel = e => {
   const wheelProgress = e.deltaY * speedWheel
   progress = progress + wheelProgress
-  animate()
 }
 
 const handleMouseMoveCarousel = (e) => {
   if (e.type === 'mousemove') {
     $cursors.forEach(($cursor) => {
-      $cursor.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`
+      $cursor.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`
     })
   }
   if (!isDown || isDraggingProgress) return
@@ -265,7 +286,6 @@ const handleMouseMoveCarousel = (e) => {
   const mouseProgress = (x - startX) * speedDrag
   progress = progress + mouseProgress
   startX = x
-  animate()
 }
 
 const handleMouseDownCarousel = e => {
@@ -286,7 +306,5 @@ document.addEventListener('mousedown', handleMouseDownCarousel)
 document.addEventListener('mousemove', handleMouseMoveCarousel)
 document.addEventListener('mouseup', handleMouseUpCarousel)
 document.addEventListener('touchstart', handleMouseDownCarousel)
-document.addEventListener('touchmove', handleMouseMoveCarousel)
+document.addEventListener('touchmove', handleMouseMoveCarousel, { passive: false })
 document.addEventListener('touchend', handleMouseUpCarousel)
-// Init
-animate();
