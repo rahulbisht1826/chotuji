@@ -24,18 +24,12 @@ body {
 
 .carousel-item {
   --items: 16;
-  --width: clamp(260px, 75vw, 340px);
-  --height: clamp(480px, 120vw, 530px);
+  --width: 340px;
+  --height: 530px;
   --x: calc(var(--active) * 800%);
   --y: calc(var(--active) * 200%);
   --rot: calc(var(--active) * 120deg);
   --opacity: calc(var(--zIndex) / var(--items) * 3 - 2);
-  
-  @media (max-width: 480px) {
-    --width: 250px;
-    --height: 460px;
-    padding: 15px;
-  }
   overflow: hidden;
   position: absolute;
   z-index: var(--zIndex);
