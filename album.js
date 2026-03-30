@@ -39,7 +39,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="back cover back-cover">
                     <div class="cover-content">
                         <h1>Forever Memories</h1>
-                        <p>Forever etched in memories</p>
                     </div>
                 </div>`;
         } else {
