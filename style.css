@@ -59,7 +59,7 @@ body {
 }
 
 .carousel-item.inactive {
-  filter: grayscale(0.3) brightness(0.95) blur(0.5px);
+  filter: grayscale(0.3) brightness(0.95);
   opacity: 0.85 !important;
 }
 
@@ -112,9 +112,9 @@ body {
   font-size: 1.4rem;
   font-weight: 700;
   margin-bottom: 5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.2;
 }
 
 .carousel-item .artist {

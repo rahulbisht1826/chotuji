@@ -1,19 +1,20 @@
 /*--------------------
 Vars
 --------------------*/
-let progress = 0
-let startX = 0
-let active = 0
-let isDown = false
-let isDragging = false
-let startXDrag = 0
-const dragThreshold = 5
+let progress = 0;
+let active = 0;
+let isDown = false;
+let isDragging = false;
+let startX = 0;
+let startXDrag = 0;
+const dragThreshold = 5;
+const MAX_PROGRESS = 100;
 
 /*--------------------
 Contants
 --------------------*/
-const speedWheel = 0.02
-const speedDrag = -0.1
+const speedWheel = 0.02;
+const speedDrag = -0.1;
 
 /*--------------------
 Audio Player Setup
@@ -21,78 +22,93 @@ Audio Player Setup
 const globalAudio = new Audio();
 let isPlaying = false;
 let currentAudioIndex = -1;
+let pendingAudioIndex = -1;
+let audioSwitchTimeout;
+
+/*--------------------
+Elements
+--------------------*/
+const $items = document.querySelectorAll('.carousel-item');
+const $cursors = document.querySelectorAll('.cursor');
 
 /*--------------------
 Format Time
 --------------------*/
 const formatTime = (seconds) => {
-  if (isNaN(seconds) || seconds === Infinity) return "0:00";
+  if (isNaN(seconds) || !isFinite(seconds)) return "0:00";
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s < 10 ? '0' : ''}${s}`;
-}
+};
 
 /*--------------------
-Get Z
+Display Items
 --------------------*/
-const getZindex = (array, index) => (array.map((_, i) => (index === i) ? array.length : array.length - Math.abs(index - i)))
-
-/*--------------------
-Items
---------------------*/
-const $items = document.querySelectorAll('.carousel-item')
-const $cursors = document.querySelectorAll('.cursor')
-
-const displayItems = (item, index, active) => {
-  const zIndex = getZindex([...$items], active)[index]
-  item.style.setProperty('--zIndex', zIndex)
-  item.style.setProperty('--active', (index-active)/$items.length)
+const displayItems = (item, index, activeIndex) => {
+  const zIndex = (index === activeIndex) ? $items.length : $items.length - Math.abs(index - activeIndex);
+  item.style.setProperty('--zIndex', zIndex);
+  item.style.setProperty('--active', (index - activeIndex) / $items.length);
   
-  if (index === active) {
-    item.classList.remove('inactive')
+  if (index === activeIndex) {
+    item.classList.remove('inactive');
   } else {
-    item.classList.add('inactive')
+    item.classList.add('inactive');
   }
-}
+};
 
 /*--------------------
 Animate & Sync UI
 --------------------*/
-const animate = () => {
-  // Clamp progress between 0 and 100
-  progress = Math.max(0, Math.min(progress, 100))
-  // Calculate active index more precisely for 16 items
-  active = Math.round((progress / 100) * ($items.length - 1))
+const switchAudio = (newActive) => {
+  if (newActive === currentAudioIndex) return;
+  currentAudioIndex = newActive;
+  globalAudio.src = `./src/audio_file/${newActive + 1}.mp3`;
+  if (isPlaying) {
+    globalAudio.play().catch(e => console.warn("Audio play error:", e));
+  } else {
+    globalAudio.pause();
+  }
+  updateAudioUI(0, 0);
+  updatePlayIcons();
+};
+
+const animate = (forceAudioUpdate = false) => {
+  progress = Math.max(0, Math.min(progress, MAX_PROGRESS));
+  active = Math.round((progress / MAX_PROGRESS) * ($items.length - 1));
   
-  // Track audio switching
-  if (active !== currentAudioIndex) {
-    currentAudioIndex = active;
-    globalAudio.src = `./src/audio_file/${active + 1}.mp3`;
-    if (isPlaying) {
-      globalAudio.play().catch(e => console.log("Audio not found or autoplay prevented.", e));
-    }
-    // Instantly reset the UI to 0:00 for the new card
+  if (active !== pendingAudioIndex || forceAudioUpdate) {
+    pendingAudioIndex = active;
+    
+    // Visually reset UI immediately for the new passing card
     updateAudioUI(0, 0);
+    updatePlayIcons();
+    
+    clearTimeout(audioSwitchTimeout);
+    if (!forceAudioUpdate) {
+      audioSwitchTimeout = setTimeout(() => {
+        if (!isDown) {
+          switchAudio(active);
+        }
+      }, 250); // Delay audio switch to avoid lag while swiping rapidly
+    } else {
+      switchAudio(active);
+    }
   }
 
-  $items.forEach((item, index) => displayItems(item, index, active))
-}
+  $items.forEach((item, index) => displayItems(item, index, active));
+};
 
 /*--------------------
 Click on Items
 --------------------*/
 $items.forEach((item, i) => {
-  item.style.pointerEvents = 'auto' // Ensure cards are clickable
   item.addEventListener('click', (e) => {
-    // Stop event bubbling to prevent double triggers
-    e.stopPropagation() 
-    if (isDragging) return
-    
-    // Set progress exactly to the clicked item's position
-    progress = (i / ($items.length - 1)) * 100
-    animate()
-  })
-})
+    e.stopPropagation();
+    if (isDragging) return;
+    progress = (i / ($items.length - 1)) * MAX_PROGRESS;
+    animate();
+  });
+});
 
 /*--------------------
 Audio Helpers
@@ -101,8 +117,12 @@ function updatePlayIcons() {
   $items.forEach((item, index) => {
     const isCurrentActive = index === active;
     
-    item.querySelectorAll('.play-icon').forEach(icon => icon.style.display = (isCurrentActive && isPlaying) ? 'none' : 'block');
-    item.querySelectorAll('.pause-icon').forEach(icon => icon.style.display = (isCurrentActive && isPlaying) ? 'block' : 'none');
+    item.querySelectorAll('.play-icon').forEach(icon => {
+      icon.style.display = (isCurrentActive && isPlaying) ? 'none' : 'block';
+    });
+    item.querySelectorAll('.pause-icon').forEach(icon => {
+      icon.style.display = (isCurrentActive && isPlaying) ? 'block' : 'none';
+    });
     
     item.querySelectorAll('.progress-fill').forEach(fill => {
       if (isCurrentActive && isPlaying) {
@@ -119,7 +139,7 @@ function togglePlay() {
     globalAudio.play().then(() => {
       isPlaying = true;
       updatePlayIcons();
-    }).catch(e => console.log("Audio play error (check if song exists):", e));
+    }).catch(e => console.warn("Audio play error:", e));
   } else {
     globalAudio.pause();
     isPlaying = false;
@@ -133,12 +153,12 @@ globalAudio.addEventListener('ended', () => {
   if (nextIndex >= $items.length) {
     nextIndex = 0; // Loop back to the first card
   }
-  progress = (nextIndex / ($items.length - 1)) * 100;
+  progress = (nextIndex / ($items.length - 1)) * MAX_PROGRESS;
   animate();
   
   // Ensure the new song plays immediately
   isPlaying = true; 
-  globalAudio.play().catch(e => console.log(e));
+  globalAudio.play().catch(e => console.warn(e));
   updatePlayIcons();
 });
 
@@ -164,6 +184,7 @@ function updateAudioUI(currentTime, duration) {
 }
 
 // timeupdate event fires as the audio plays
+let isDraggingProgress = false;
 globalAudio.addEventListener('timeupdate', () => {
   if (!isDraggingProgress) {
     updateAudioUI(globalAudio.currentTime, globalAudio.duration);
@@ -181,25 +202,28 @@ Player Controls
 const stopProp = e => e.stopPropagation();
 document.querySelectorAll('.controls, .progress-section').forEach(el => {
   el.addEventListener('mousedown', stopProp);
-  el.addEventListener('touchstart', stopProp);
+  el.addEventListener('touchstart', stopProp, { passive: false });
   el.addEventListener('click', stopProp);
 });
 
 document.querySelectorAll('.prev-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    progress = Math.max(0, progress - (100 / ($items.length - 1)));
+    let prevIndex = active - 1;
+    if (prevIndex < 0) {
+      prevIndex = $items.length - 1;
+    }
+    progress = (prevIndex / ($items.length - 1)) * MAX_PROGRESS;
     animate();
   });
 });
 
 document.querySelectorAll('.next-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    progress = Math.min(100, progress + (100 / ($items.length - 1)));
-    let nextIndex = Math.round((progress / 100) * ($items.length - 1));
-    // If we're already at the end and press next, loop back
-    if (active === $items.length - 1) {
-       progress = 0;
+    let nextIndex = active + 1;
+    if (nextIndex >= $items.length) {
+      nextIndex = 0;
     }
+    progress = (nextIndex / ($items.length - 1)) * MAX_PROGRESS;
     animate();
   });
 });
@@ -208,43 +232,43 @@ document.querySelectorAll('.play-btn').forEach(btn => {
   btn.addEventListener('click', togglePlay);
 });
 
-
-
-// Scrubbing Player Song Progress
-let isDraggingProgress = false;
+/*--------------------
+Scrubbing Player 
+--------------------*/
 let activeProgressBar = null;
+
+const getClientX = (e) => {
+  if (e.clientX !== undefined) return e.clientX;
+  if (e.touches && e.touches.length > 0) return e.touches[0].clientX;
+  if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientX;
+  return 0;
+};
 
 const updateSongScrub = (e) => {
   if (!activeProgressBar || !globalAudio.duration) return;
   const rect = activeProgressBar.getBoundingClientRect();
-  const x = (e.clientX || (e.touches && e.touches[0].clientX) || rect.left) - rect.left;
+  const x = getClientX(e) - rect.left;
   const scrubPercent = Math.max(0, Math.min(100, (x / rect.width) * 100));
-  
   updateAudioUI((scrubPercent / 100) * globalAudio.duration, globalAudio.duration);
-}
+};
 
 const applySongScrub = (e) => {
   if (!activeProgressBar || !globalAudio.duration) return;
   const rect = activeProgressBar.getBoundingClientRect();
-  const x = (e.clientX || (e.touches && e.touches[0].clientX) || rect.left) - rect.left;
+  const x = getClientX(e) - rect.left;
   const scrubPercent = Math.max(0, Math.min(100, (x / rect.width) * 100));
-  
   globalAudio.currentTime = (scrubPercent / 100) * globalAudio.duration;
-}
+};
 
 document.querySelectorAll('.progress-bar').forEach(bar => {
-  bar.addEventListener('mousedown', (e) => {
+  const startScrub = (e) => {
     e.stopPropagation();
     isDraggingProgress = true;
     activeProgressBar = bar;
     updateSongScrub(e);
-  });
-  bar.addEventListener('touchstart', (e) => {
-    e.stopPropagation();
-    isDraggingProgress = true;
-    activeProgressBar = bar;
-    updateSongScrub(e);
-  });
+  };
+  bar.addEventListener('mousedown', startScrub);
+  bar.addEventListener('touchstart', startScrub, { passive: false });
 });
 
 document.addEventListener('mousemove', (e) => {
@@ -252,13 +276,13 @@ document.addEventListener('mousemove', (e) => {
 });
 document.addEventListener('touchmove', (e) => {
   if (isDraggingProgress) updateSongScrub(e);
-});
+}, { passive: false });
 
 const stopScrub = (e) => {
   if (isDraggingProgress) applySongScrub(e);
   isDraggingProgress = false;
   activeProgressBar = null;
-}
+};
 document.addEventListener('mouseup', stopScrub);
 document.addEventListener('touchend', stopScrub);
 
@@ -266,52 +290,62 @@ document.addEventListener('touchend', stopScrub);
 Carousel Handlers
 --------------------*/
 const handleWheel = e => {
-  const wheelProgress = e.deltaY * speedWheel
-  progress = progress + wheelProgress
-  animate()
-}
+  progress += e.deltaY * speedWheel;
+  animate();
+};
 
 const handleMouseMoveCarousel = (e) => {
   if (e.type === 'mousemove') {
-    $cursors.forEach(($cursor) => {
-      $cursor.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`
-    })
+    $cursors.forEach($cursor => {
+      $cursor.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
+    });
   }
-  if (!isDown || isDraggingProgress) return
-  const x = e.clientX || (e.touches && e.touches[0].clientX) || 0
   
-  // Set dragging state if threshold passed
+  if (!isDown || isDraggingProgress) return;
+
+  const x = getClientX(e);
+  
   if (Math.abs(x - startXDrag) > dragThreshold) {
-    isDragging = true
+    isDragging = true;
   }
 
-  const mouseProgress = (x - startX) * speedDrag
-  progress = progress + mouseProgress
-  startX = x
-  animate()
-}
+  progress += (x - startX) * speedDrag;
+  startX = x;
+  animate();
+};
 
 const handleMouseDownCarousel = e => {
   if (isDraggingProgress) return;
-  isDown = true
-  isDragging = false // Reset for new click
-  startX = e.clientX || (e.touches && e.touches[0].clientX) || 0
-  startXDrag = startX 
-}
+  isDown = true;
+  isDragging = false;
+  startX = getClientX(e);
+  startXDrag = startX;
+  
+  // Disable transition for snappy dragging on mobile
+  $items.forEach(item => item.style.transition = 'none');
+};
 
 const handleMouseUpCarousel = () => {
-  isDown = false
-}
+  isDown = false;
+  
+  // Re-enable transition for smooth snapping
+  $items.forEach(item => item.style.transition = '');
+  
+  // Snap progress to final active card
+  progress = (active / ($items.length - 1)) * MAX_PROGRESS;
+  animate(true);
+};
 
 /*--------------------
 Listeners
 --------------------*/
-document.addEventListener('mousewheel', handleWheel)
-document.addEventListener('mousedown', handleMouseDownCarousel)
-document.addEventListener('mousemove', handleMouseMoveCarousel)
-document.addEventListener('mouseup', handleMouseUpCarousel)
-document.addEventListener('touchstart', handleMouseDownCarousel)
-document.addEventListener('touchmove', handleMouseMoveCarousel)
-document.addEventListener('touchend', handleMouseUpCarousel)
+document.addEventListener('wheel', handleWheel, { passive: true });
+document.addEventListener('mousedown', handleMouseDownCarousel);
+document.addEventListener('mousemove', handleMouseMoveCarousel);
+document.addEventListener('mouseup', handleMouseUpCarousel);
+document.addEventListener('touchstart', handleMouseDownCarousel, { passive: true });
+document.addEventListener('touchmove', handleMouseMoveCarousel, { passive: false });
+document.addEventListener('touchend', handleMouseUpCarousel);
+
 // Init
 animate();
